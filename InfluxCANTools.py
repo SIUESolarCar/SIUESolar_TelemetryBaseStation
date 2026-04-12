@@ -5,11 +5,15 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 import os
 
 
-class VirtualCANdapter:
-    ''' The Virtual CANdapter.'''
+class InfluxCANTools:
+    ''' A class for handling InfluxDB operations with CAN messages.'''
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, write_api, DBCfile, bucket, org):
+        self.write_api = write_api
+        self.db = cantools.database.load_file(DBCfile)
+        self.bucket = bucket
+        self.org = org
+        self.FrameIdList = self.FrameIdList(self.db)
 
     def ConvertHexDataToBytes(self, frame):
         # Makes list of hex from frame for conversion
@@ -52,17 +56,17 @@ class VirtualCANdapter:
 
         return FrameIdList
 
-    def UploadMessageToInflux(self, db, frame, write_api):
+    def UploadMessageToInflux(self, frame):
         '''
         Function that takes the can message and uploads it to the database
         '''
 
         frame_name = self.FrameName(frame)
         
-        if frame_name not in self.FrameIdList(db):
+        if frame_name not in self.FrameIdList(self.db):
             return -1
 
-        message = self.DecodeMessage(db, frame)
+        message = self.DecodeMessage(self.db, frame)
 
         keys_list = list(message.keys())
 
@@ -71,7 +75,7 @@ class VirtualCANdapter:
             record = record.field(keys_list[datapoints], message[keys_list[datapoints]])
 
         try:
-            write_api.write(bucket, org, record)
+            self.write_api.write(self.bucket, self.org, record)
             return 1
         except:
             return -1
