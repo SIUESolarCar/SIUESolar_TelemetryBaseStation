@@ -1,0 +1,21 @@
+{
+	"name": "Python Signal Processing",
+
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+
+	"customizations": {
+		// Configure properties specific to VS Code.
+		"vscode": {
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"ms-python.python"
+			]
+		}
+	},
+
+	"remoteEnv": {
+		"PATH": "${containerEnv:PATH}:/home/vscode/bin"
+	}
+}

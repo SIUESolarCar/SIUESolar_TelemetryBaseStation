@@ -1,8 +1,10 @@
 import cantools
+import can
 import influxdb_client
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 import os
+from datetime import datetime, timezone
 
 
 class InfluxCANTools:
@@ -10,10 +12,14 @@ class InfluxCANTools:
 
     def __init__(self, write_api, DBCfile, bucket, org):
         self.write_api = write_api
-        self.db = cantools.database.load_file(DBCfile)
         self.bucket = bucket
         self.org = org
-        self.FrameIdList = self.FrameIdList(self.db)
+
+    def database(self, DBCfiles):
+        self.db = cantools.database.Database()
+        for dbcfile in DBCfiles:
+            self.db.add_dbc_file(dbcfile)
+
 
     def ConvertHexDataToBytes(self, frame):
         # Makes list of hex from frame for conversion
@@ -33,49 +39,49 @@ class InfluxCANTools:
         CombinedBytes = bytes.fromhex(CombinedHex)
         return(CombinedBytes)
 
-    def FrameName(self, frame):
-        FrameID = frame['id']
-        return(FrameID)
-
-    def DecodeMessage(self, db, frame):
-        message = db.decode_message(frame['id'], self.ConvertHexDataToBytes(f))
-        return(message)
-
-    def FrameIdList(self, db):
+    def UploadFrameToInflux(self, frame):
         '''
-        Function to append all the FrameIds from a db to a frame id list
+        Function that takes the cantools frame and uploads it to the database
         '''
-
-        FrameIdList = []
-
-        dbc_length = len(db._messages)
-
-        for index in range(dbc_length):
-            frame_id_hex = db._messages[index].frame_id
-            FrameIdList.append(frame_id_hex)
-
-        return FrameIdList
-
-    def UploadMessageToInflux(self, frame):
-        '''
-        Function that takes the can message and uploads it to the database
-        '''
-
-        frame_name = self.FrameName(frame)
         
-        if frame_name not in self.FrameIdList(self.db):
+        if frame['id'] not in self.FrameIdList(self.db):
             return -1
 
-        message = self.DecodeMessage(self.db, frame)
+        decoded = self.db.decode_message(frame['id'], self.ConvertHexDataToBytes(frame))
 
-        keys_list = list(message.keys())
+        keys_list = list(decoded.keys())
 
-        record = influxdb_client.Point(frame_name)
-        for datapoints in range(len(message)):
-            record = record.field(keys_list[datapoints], message[keys_list[datapoints]])
+        record = influxdb_client.Point(frame['id'])
+        for datapoints in range(len(decoded)):
+            record = record.field(keys_list[datapoints], decoded[keys_list[datapoints]])
 
         try:
             self.write_api.write(self.bucket, self.org, record)
             return 1
         except:
             return -1
+    
+    def UploadMessageToInflux(self, msg):
+        '''
+        Function that takes the can message and uploads it to the database
+        '''
+        print("new message")
+        try:
+            decoded = self.db.decode_message(msg.arbitration_id, msg.data)
+
+            print(f"ID {msg.arbitration_id}: {decoded}")
+
+            keys_list = list(decoded.keys())
+
+            dt = datetime.fromtimestamp(msg.timestamp, timezone.utc)
+            rfc3339_string = dt.isoformat()
+
+
+            point = influxdb_client.Point(msg.arbitration_id)
+            for datapoints in range(len(decoded)):
+                point = point.field(keys_list[datapoints], decoded[keys_list[datapoints]])
+            point.time(rfc3339_string)
+
+            self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+        except Exception as e:
+            print(f"An error occurred: {e}")
